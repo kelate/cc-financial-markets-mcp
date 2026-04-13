@@ -1,0 +1,218 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# GitLab CI/CD — cc-financial-markets-mcp
+# Déploiement Vercel pour toutes les branches
+#   • Branches feature/fix → Preview deployment
+#   • master              → Production deployment
+#
+# Variables requises dans GitLab (Settings → CI/CD → Variables) :
+#   VERCEL_TOKEN      — token API Vercel (https://vercel.com/account/tokens)
+#   VERCEL_ORG_ID     — ID de l'organisation Vercel
+#   VERCEL_PROJECT_ID — ID du projet Vercel
+# ─────────────────────────────────────────────────────────────────────────────
+
+default:
+  image: node:22-alpine
+  interruptible: true
+
+stages:
+  - validate
+  - test
+  - build
+  - integration
+  - deploy
+
+# ── Cache ────────────────────────────────────────────────────────────────────
+.node_cache: &node_cache
+  cache:
+    key:
+      files:
+        - package.json
+    paths:
+      - node_modules/
+    policy: pull-push
+
+# ── Règles réutilisables ────────────────────────────────────────────────────
+.rules_all_branches: &rules_all_branches
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: never
+    - when: on_success
+
+.rules_master_only: &rules_master_only
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
+      when: on_success
+
+.rules_preview: &rules_preview
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: never
+    - if: $CI_COMMIT_BRANCH != "master"
+      when: on_success
+
+# ── Template Vercel CLI ──────────────────────────────────────────────────────
+.vercel_base:
+  image: node:22-alpine
+  before_script:
+    - npm install -g vercel@latest --silent
+    - vercel pull --yes --environment=${VERCEL_ENV:-preview} --token=$VERCEL_TOKEN
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STAGE : validate
+# ─────────────────────────────────────────────────────────────────────────────
+install:
+  stage: validate
+  <<: *node_cache
+  cache:
+    key:
+      files:
+        - package.json
+    paths:
+      - node_modules/
+    policy: pull-push
+  script:
+    - node --version
+    - npm --version
+    - npm install --prefer-offline
+  <<: *rules_all_branches
+  artifacts:
+    paths:
+      - node_modules/
+    expire_in: 1 hour
+
+typecheck:
+  stage: validate
+  needs: [install]
+  script:
+    - npm run typecheck
+  <<: *rules_all_branches
+
+lint:
+  stage: validate
+  needs: [install]
+  script:
+    - npm run lint
+  <<: *rules_all_branches
+  allow_failure: false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STAGE : test — Tests unitaires (sans build requis)
+# ─────────────────────────────────────────────────────────────────────────────
+unit_tests:
+  stage: test
+  # Pas d'artifact install : node_modules shell (glibc) est incompatible avec Docker Alpine (musl).
+  # npm install fresh garantit @rollup/rollup-linux-x64-musl pour vitest.
+  needs: []
+  script:
+    - npm install
+    - mkdir -p test-results
+    - npm run test:coverage
+  coverage: '/^All files\s*\|\s*([\d.]+)/'
+  artifacts:
+    when: always
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/cobertura-coverage.xml
+      junit: test-results/unit-tests.xml
+    paths:
+      - coverage/
+      - test-results/
+    expire_in: 7 days
+  <<: *rules_all_branches
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STAGE : build
+# ─────────────────────────────────────────────────────────────────────────────
+build:
+  stage: build
+  needs: [install, typecheck, lint, unit_tests]
+  script:
+    - npm run build
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 hour
+  <<: *rules_all_branches
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STAGE : integration — Tests d'intégration HTTP (nécessite le build)
+# ─────────────────────────────────────────────────────────────────────────────
+integration_tests:
+  stage: integration
+  needs: [build]
+  script:
+    # Fresh install dans Alpine : garantit @rollup/rollup-linux-x64-musl (musl ≠ glibc)
+    - npm install
+    - mkdir -p test-results
+    # Démarre le serveur MCP en HTTP, les tests le gèrent via globalSetup
+    - npm run test:integration
+  artifacts:
+    when: always
+    reports:
+      junit: test-results/integration-tests.xml
+    paths:
+      - test-results/
+    expire_in: 7 days
+  <<: *rules_all_branches
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STAGE : deploy — Preview (toutes branches sauf master)
+# ─────────────────────────────────────────────────────────────────────────────
+deploy_preview:
+  stage: deploy
+  extends: .vercel_base
+  needs: [integration_tests]
+  variables:
+    VERCEL_ENV: preview
+  environment:
+    name: preview/$CI_COMMIT_REF_SLUG
+    url: $VERCEL_PREVIEW_URL
+    on_stop: stop_preview
+    auto_stop_in: 7 days
+  script:
+    - vercel build --token=$VERCEL_TOKEN
+    - VERCEL_PREVIEW_URL=$(vercel deploy --prebuilt --token=$VERCEL_TOKEN)
+    - echo "VERCEL_PREVIEW_URL=$VERCEL_PREVIEW_URL" >> deploy.env
+    - echo "Deployed to $VERCEL_PREVIEW_URL"
+  artifacts:
+    reports:
+      dotenv: deploy.env
+  <<: *rules_preview
+
+stop_preview:
+  stage: deploy
+  extends: .vercel_base
+  needs: []
+  variables:
+    GIT_STRATEGY: none
+  environment:
+    name: preview/$CI_COMMIT_REF_SLUG
+    action: stop
+  script:
+    - echo "Environnement preview supprimé automatiquement par Vercel après expiration"
+  rules:
+    - if: $CI_COMMIT_BRANCH != "master"
+      when: manual
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STAGE : deploy — Production (master uniquement)
+# ─────────────────────────────────────────────────────────────────────────────
+deploy_production:
+  stage: deploy
+  extends: .vercel_base
+  needs: [integration_tests]
+  variables:
+    VERCEL_ENV: production
+  environment:
+    name: production
+    url: $VERCEL_PRODUCTION_URL
+  script:
+    - vercel build --prod --token=$VERCEL_TOKEN
+    - VERCEL_PRODUCTION_URL=$(vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN)
+    - echo "VERCEL_PRODUCTION_URL=$VERCEL_PRODUCTION_URL" >> deploy.env
+    - echo "Deployed to production $VERCEL_PRODUCTION_URL"
+  artifacts:
+    reports:
+      dotenv: deploy.env
+  <<: *rules_master_only
