@@ -59,6 +59,8 @@ const TRADING_HOURS: Record<string, TradingSchedule> = {
   BVMT: { openHour: 8,  openMinute: 0,  closeHour: 14, closeMinute: 0  },
   // UTC+2 (CAT)   10:00–12:30 local → 08:00–10:30 UTC
   LUSE: { openHour: 8,  openMinute: 0,  closeHour: 10, closeMinute: 30 },
+  // UTC+2 (SAST)  09:00–13:30 local → 07:00–11:30 UTC
+  ESE:  { openHour: 7,  openMinute: 0,  closeHour: 11, closeMinute: 30 },
   // UTC+2 (CAT)   10:00–16:00 local → 08:00–14:00 UTC
   ZSE:  { openHour: 8,  openMinute: 0,  closeHour: 14, closeMinute: 0  },
 };

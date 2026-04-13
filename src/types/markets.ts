@@ -84,6 +84,7 @@ export const AFRICAN_EXCHANGES: MarketExchange[] = [
   { name: "Rwanda Stock Exchange", code: "RSE", country: "Rwanda", currency: "RWF", url: "rse" },
   { name: "Dar es Salaam Stock Exchange", code: "DSE", country: "Tanzanie", currency: "TZS", url: "dse" },
   { name: "Bourse de Tunis", code: "BVMT", country: "Tunisie", currency: "TND", url: "bvmt" },
-  { name: "Lusaka Stock Exchange", code: "LuSE", country: "Zambie", currency: "ZMW", url: "luse" },
+  { name: "Lusaka Stock Exchange", code: "LUSE", country: "Zambie", currency: "ZMW", url: "luse" },
+  { name: "Bourse d'Eswatini", code: "ESE", country: "Eswatini", currency: "SZL", url: "ese" },
   { name: "Zimbabwe Stock Exchange", code: "ZSE", country: "Zimbabwe", currency: "ZWL", url: "zse" },
 ];
