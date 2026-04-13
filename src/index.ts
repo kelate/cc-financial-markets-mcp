@@ -24,6 +24,7 @@ import { logger, setLogLevel } from "./logger.js";
 import { Fetcher } from "./scraper/fetcher.js";
 import { RateLimiter } from "./scraper/rate-limiter.js";
 import { GetAnnualReportsSchema, getAnnualReports } from "./tools/annual-reports.js";
+import { GetCompanyDocumentsSchema, getCompanyDocuments } from "./tools/company-documents.js";
 import { GetCompanyProfileSchema, getCompanyProfile } from "./tools/company-profile.js";
 import { ListExchangesSchema, listExchanges } from "./tools/list-exchanges.js";
 import { GetMarketDataSchema, getMarketData } from "./tools/market-data.js";
@@ -86,6 +87,23 @@ function createMcpServer(): McpServer {
     async (params) => {
       try {
         const result = await getAnnualReports(params, fetcher);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Erreur: ${(error as Error).message}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "get_company_documents",
+    "Récupère l'historique complet des documents publiés par une entreprise cotée (rapports annuels, états financiers, communiqués). Nécessite un compte premium african-markets.com.",
+    GetCompanyDocumentsSchema.shape,
+    async (params) => {
+      try {
+        const result = await getCompanyDocuments(params, fetcher);
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       } catch (error) {
         return {
@@ -210,12 +228,13 @@ pre{background:#1e1e1e;color:#d4d4d4;padding:16px;border-radius:8px;overflow-x:a
 
 <h2>Outils disponibles</h2>
 <ul>
-<li><code>list_exchanges</code> — 17 places de marché africaines</li>
+<li><code>list_exchanges</code> — 18 places de marché africaines</li>
 <li><code>get_market_data</code> — cours, movers, indices en temps réel</li>
 <li><code>get_annual_reports</code> — rapports et publications PDF</li>
 <li><code>get_market_news</code> — actualités financières</li>
 <li><code>get_index_history</code> — historique de l'indice (close/volume, depuis 2015)</li>
 <li><code>get_stock_history</code> — historique OHLCV d'une action (premium)</li>
+<li><code>get_company_documents</code> — documents complets d'une entreprise (premium)</li>
 </ul>
 
 <h2>Connexion depuis une app</h2>

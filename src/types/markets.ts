@@ -44,6 +44,7 @@ export interface AnnualReport {
   url: string;
   fileType?: string;
   publishDate?: string;
+  documentType?: string;
 }
 
 export interface MarketNews {
