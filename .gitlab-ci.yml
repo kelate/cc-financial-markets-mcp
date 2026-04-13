@@ -100,10 +100,11 @@ lint:
 # ─────────────────────────────────────────────────────────────────────────────
 unit_tests:
   stage: test
-  needs: [install]
+  # Pas d'artifact install : node_modules shell (glibc) est incompatible avec Docker Alpine (musl).
+  # npm install fresh garantit @rollup/rollup-linux-x64-musl pour vitest.
+  needs: []
   script:
-    # Réinstalle si le runner Docker Alpine (musl) a reçu le node_modules glibc du shell runner
-    - npm install --prefer-offline
+    - npm install
     - mkdir -p test-results
     - npm run test:coverage
   coverage: '/^All files\s*\|\s*([\d.]+)/'
@@ -141,8 +142,8 @@ integration_tests:
   stage: integration
   needs: [build]
   script:
-    # Réinstalle les dépendances dans le container Alpine (binaires musl distincts du runner shell glibc)
-    - npm install --prefer-offline
+    # Fresh install dans Alpine : garantit @rollup/rollup-linux-x64-musl (musl ≠ glibc)
+    - npm install
     - mkdir -p test-results
     # Démarre le serveur MCP en HTTP, les tests le gèrent via globalSetup
     - npm run test:integration
