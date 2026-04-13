@@ -73,7 +73,7 @@ install:
   script:
     - node --version
     - npm --version
-    - npm ci --prefer-offline
+    - npm install --prefer-offline
   <<: *rules_all_branches
   artifacts:
     paths:
