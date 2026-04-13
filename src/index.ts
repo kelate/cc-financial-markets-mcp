@@ -18,6 +18,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Cache } from "./cache/cache.js";
+import { CacheWarmer } from "./cache/warmer.js";
 import { loadConfig } from "./config.js";
 import { logger, setLogLevel } from "./logger.js";
 import { Fetcher } from "./scraper/fetcher.js";
@@ -40,6 +41,8 @@ const fetcher = new Fetcher({
   cache,
   auth: config.auth,
 });
+
+const warmer = new CacheWarmer(fetcher);
 
 function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -251,7 +254,12 @@ Body: {
     }
   } else if (url.pathname === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", server: "cc-financial-markets-mcp", version: "0.1.0" }));
+    res.end(JSON.stringify({
+      status: "ok",
+      server: "cc-financial-markets-mcp",
+      version: "0.1.0",
+      cacheWarmer: config.cacheWarmingEnabled ? warmer.stats : { enabled: false },
+    }));
   } else {
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
@@ -276,9 +284,21 @@ if (isScript) {
     ? parseInt(args[httpFlagIndex + 1] || String(config.httpPort), 10)
     : config.httpPort;
 
+  function startWarmer() {
+    if (config.cacheWarmingEnabled) {
+      warmer.start();
+      // Graceful shutdown
+      process.on("SIGTERM", () => warmer.stop());
+      process.on("SIGINT",  () => warmer.stop());
+    } else {
+      logger.info("Cache warming disabled (CACHE_WARMING_ENABLED=false)");
+    }
+  }
+
   async function startStdio() {
     const server = createMcpServer();
     logger.info("Starting CC Financial Markets MCP server (stdio)", { baseUrl: config.baseUrl });
+    startWarmer();
     const transport = new StdioServerTransport();
     await server.connect(transport);
     logger.info("Server connected via stdio transport");
@@ -292,6 +312,7 @@ if (isScript) {
       process.stderr.write(`   MCP endpoint: http://localhost:${httpPort}/mcp\n`);
       process.stderr.write(`   Health check: http://localhost:${httpPort}/health\n\n`);
     });
+    startWarmer();
   }
 
   const main = isHttpMode ? startHttp : startStdio;

@@ -62,7 +62,7 @@ describe("getMarketData", () => {
       await getMarketData({ exchange: "BRVM", type: "stocks" }, fetcher as Fetcher);
 
       expect(fetcher.fetchPage).toHaveBeenCalledTimes(1);
-      expect(fetcher.fetchPage).toHaveBeenCalledWith(expect.stringContaining("listed-companies"));
+      expect(fetcher.fetchPage).toHaveBeenCalledWith(expect.stringContaining("listed-companies"), undefined, false);
     });
 
     it("type=movers — fetch uniquement la page exchange (pas listed-companies)", async () => {
@@ -70,24 +70,24 @@ describe("getMarketData", () => {
 
       expect(fetcher.fetchPage).toHaveBeenCalledTimes(1);
       expect(fetcher.fetchPage).not.toHaveBeenCalledWith(
-        expect.stringContaining("listed-companies")
+        expect.stringContaining("listed-companies"), undefined, false
       );
-      expect(fetcher.fetchPage).toHaveBeenCalledWith(expect.stringContaining("/bourse/brvm"));
+      expect(fetcher.fetchPage).toHaveBeenCalledWith(expect.stringContaining("/bourse/brvm"), undefined, false);
     });
 
     it("type=indices — fetch la page exchange", async () => {
       await getMarketData({ exchange: "BRVM", type: "indices" }, fetcher as Fetcher);
 
-      expect(fetcher.fetchPage).toHaveBeenCalledWith(expect.stringContaining("/bourse/brvm"));
+      expect(fetcher.fetchPage).toHaveBeenCalledWith(expect.stringContaining("/bourse/brvm"), undefined, false);
     });
 
     it("type=all — fetch listed-companies + page exchange (stocks + movers + indices)", async () => {
       await getMarketData({ exchange: "BRVM", type: "all" }, fetcher as Fetcher);
 
-      // 3 appels : listed-companies, /bourse/brvm (movers), /bourse/brvm (indices)
+      // 3 appels : listed-companies, /bourse/brvm (movers), /bourse/brvm (indices depuis cache)
       expect(fetcher.fetchPage).toHaveBeenCalledTimes(3);
-      expect(fetcher.fetchPage).toHaveBeenCalledWith(expect.stringContaining("listed-companies"));
-      expect(fetcher.fetchPage).toHaveBeenCalledWith(expect.stringContaining("/bourse/brvm"));
+      expect(fetcher.fetchPage).toHaveBeenCalledWith(expect.stringContaining("listed-companies"), undefined, false);
+      expect(fetcher.fetchPage).toHaveBeenCalledWith(expect.stringContaining("/bourse/brvm"), undefined, false);
     });
   });
 

@@ -50,17 +50,20 @@ export class Fetcher {
   /**
    * Fetch a page as HTML string. Results are cached.
    * Authenticated requests include session cookies for premium content.
-   * @param path - Relative path (e.g., "/bourse/brvm")
-   * @param cacheTtl - Optional TTL override in seconds
+   * @param path         - Relative path (e.g., "/bourse/brvm")
+   * @param cacheTtl     - Optional TTL override in seconds
+   * @param forceRefresh - When true, skip the cache read and fetch a fresh copy (still writes to cache)
    */
-  async fetchPage(path: string, cacheTtl?: number): Promise<string> {
+  async fetchPage(path: string, cacheTtl?: number, forceRefresh = false): Promise<string> {
     const url = path.startsWith("http") ? path : `${this.baseUrl}${path}`;
     const cacheKey = `page:${url}`;
 
-    const cached = this.cache.get<string>(cacheKey);
-    if (cached) {
-      logger.debug("Cache hit", { url });
-      return cached;
+    if (!forceRefresh) {
+      const cached = this.cache.get<string>(cacheKey);
+      if (cached) {
+        logger.debug("Cache hit", { url });
+        return cached;
+      }
     }
 
     await this.ensureAuth();
