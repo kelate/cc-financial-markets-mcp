@@ -1,0 +1,35 @@
+/**
+ * Server configuration loaded from environment variables with sensible defaults.
+ */
+
+export interface Config {
+  baseUrl: string;
+  httpPort: number;
+  cacheTtlSeconds: number;
+  cacheTtlReportsSeconds: number;
+  cacheTtlProfilesSeconds: number;
+  rateLimitPerMinute: number;
+  logLevel: "debug" | "info" | "warn" | "error";
+  userAgent: string;
+  auth: {
+    username: string;
+    password: string;
+  };
+}
+
+export function loadConfig(): Config {
+  return {
+    baseUrl: process.env.AFRICAN_MARKETS_BASE_URL || "https://www.african-markets.com/fr",
+    httpPort: parseInt(process.env.HTTP_PORT || "3100", 10),
+    cacheTtlSeconds: parseInt(process.env.CACHE_TTL_SECONDS || "300", 10),
+    cacheTtlReportsSeconds: parseInt(process.env.CACHE_TTL_REPORTS_SECONDS || "3600", 10),
+    cacheTtlProfilesSeconds: parseInt(process.env.CACHE_TTL_PROFILES_SECONDS || "1800", 10),
+    rateLimitPerMinute: parseInt(process.env.RATE_LIMIT_REQUESTS_PER_MINUTE || "30", 10),
+    logLevel: (process.env.LOG_LEVEL as Config["logLevel"]) || "info",
+    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) AfricanMarketsMCP/0.1.0",
+    auth: {
+      username: process.env.AFRICAN_MARKETS_USERNAME || "",
+      password: process.env.AFRICAN_MARKETS_PASSWORD || "",
+    },
+  };
+}
