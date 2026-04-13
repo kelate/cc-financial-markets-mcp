@@ -137,8 +137,10 @@ build:
 # ─────────────────────────────────────────────────────────────────────────────
 integration_tests:
   stage: integration
-  needs: [install, build]
+  needs: [build]
   script:
+    # Réinstalle les dépendances dans le container Alpine (binaires musl distincts du runner shell glibc)
+    - npm install --prefer-offline
     - mkdir -p test-results
     # Démarre le serveur MCP en HTTP, les tests le gèrent via globalSetup
     - npm run test:integration
