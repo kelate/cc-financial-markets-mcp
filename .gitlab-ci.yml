@@ -102,6 +102,8 @@ unit_tests:
   stage: test
   needs: [install]
   script:
+    # Réinstalle si le runner Docker Alpine (musl) a reçu le node_modules glibc du shell runner
+    - npm install --prefer-offline
     - mkdir -p test-results
     - npm run test:coverage
   coverage: '/^All files\s*\|\s*([\d.]+)/'
