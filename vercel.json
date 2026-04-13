@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "name": "cc-financial-markets-mcp",
+  "builds": [
+    {
+      "src": "dist/index.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    { "src": "/health", "dest": "/dist/index.js" },
+    { "src": "/mcp(.*)", "dest": "/dist/index.js" },
+    { "src": "/(.*)", "dest": "/dist/index.js" }
+  ],
+  "env": {
+    "AFRICAN_MARKETS_BASE_URL": "https://www.african-markets.com/fr",
+    "CACHE_TTL_SECONDS": "300",
+    "RATE_LIMIT_REQUESTS_PER_MINUTE": "30",
+    "LOG_LEVEL": "info"
+  },
+  "functions": {
+    "dist/index.js": {
+      "maxDuration": 30,
+      "memory": 512
+    }
+  }
+}
