@@ -18,6 +18,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:single": "vitest run -t",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:all": "npm test && npm run test:integration",
     "inspect": "npx @anthropic-ai/mcp-inspector node dist/index.js"
   },
   "dependencies": {

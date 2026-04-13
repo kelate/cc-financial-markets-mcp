@@ -18,6 +18,7 @@ stages:
   - validate
   - test
   - build
+  - integration
   - deploy
 
 # ── Cache ────────────────────────────────────────────────────────────────────
@@ -34,7 +35,7 @@ stages:
 .rules_all_branches: &rules_all_branches
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      when: never   # évite les pipelines dupliqués sur MR
+      when: never
     - when: on_success
 
 .rules_master_only: &rules_master_only
@@ -95,21 +96,25 @@ lint:
   allow_failure: false
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STAGE : test
+# STAGE : test — Tests unitaires (sans build requis)
 # ─────────────────────────────────────────────────────────────────────────────
 unit_tests:
   stage: test
   needs: [install]
   script:
+    - mkdir -p test-results
     - npm run test:coverage
   coverage: '/^All files\s*\|\s*([\d.]+)/'
   artifacts:
+    when: always
     reports:
       coverage_report:
         coverage_format: cobertura
         path: coverage/cobertura-coverage.xml
+      junit: test-results/unit-tests.xml
     paths:
       - coverage/
+      - test-results/
     expire_in: 7 days
   <<: *rules_all_branches
 
@@ -128,12 +133,31 @@ build:
   <<: *rules_all_branches
 
 # ─────────────────────────────────────────────────────────────────────────────
+# STAGE : integration — Tests d'intégration HTTP (nécessite le build)
+# ─────────────────────────────────────────────────────────────────────────────
+integration_tests:
+  stage: integration
+  needs: [build]
+  script:
+    - mkdir -p test-results
+    # Démarre le serveur MCP en HTTP, les tests le gèrent via globalSetup
+    - npm run test:integration
+  artifacts:
+    when: always
+    reports:
+      junit: test-results/integration-tests.xml
+    paths:
+      - test-results/
+    expire_in: 7 days
+  <<: *rules_all_branches
+
+# ─────────────────────────────────────────────────────────────────────────────
 # STAGE : deploy — Preview (toutes branches sauf master)
 # ─────────────────────────────────────────────────────────────────────────────
 deploy_preview:
   stage: deploy
   extends: .vercel_base
-  needs: [build]
+  needs: [integration_tests]
   variables:
     VERCEL_ENV: preview
   environment:
@@ -172,7 +196,7 @@ stop_preview:
 deploy_production:
   stage: deploy
   extends: .vercel_base
-  needs: [build]
+  needs: [integration_tests]
   variables:
     VERCEL_ENV: production
   environment:
