@@ -123,7 +123,7 @@ unit_tests:
 # ─────────────────────────────────────────────────────────────────────────────
 build:
   stage: build
-  needs: [typecheck, lint, unit_tests]
+  needs: [install, typecheck, lint, unit_tests]
   script:
     - npm run build
   artifacts:
@@ -137,7 +137,7 @@ build:
 # ─────────────────────────────────────────────────────────────────────────────
 integration_tests:
   stage: integration
-  needs: [build]
+  needs: [install, build]
   script:
     - mkdir -p test-results
     # Démarre le serveur MCP en HTTP, les tests le gèrent via globalSetup
