@@ -1,12 +1,13 @@
 {
   "version": 2,
   "name": "cc-financial-markets-mcp",
-  "builds": [
-    {
-      "src": "dist/index.js",
-      "use": "@vercel/node"
+  "buildCommand": "npm run build",
+  "functions": {
+    "dist/index.js": {
+      "maxDuration": 30,
+      "memory": 512
     }
-  ],
+  },
   "routes": [
     { "src": "/health", "dest": "/dist/index.js" },
     { "src": "/mcp(.*)", "dest": "/dist/index.js" },
@@ -17,11 +18,5 @@
     "CACHE_TTL_SECONDS": "300",
     "RATE_LIMIT_REQUESTS_PER_MINUTE": "30",
     "LOG_LEVEL": "info"
-  },
-  "functions": {
-    "dist/index.js": {
-      "maxDuration": 30,
-      "memory": 512
-    }
   }
 }
