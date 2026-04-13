@@ -28,6 +28,8 @@ import { GetCompanyProfileSchema, getCompanyProfile } from "./tools/company-prof
 import { ListExchangesSchema, listExchanges } from "./tools/list-exchanges.js";
 import { GetMarketDataSchema, getMarketData } from "./tools/market-data.js";
 import { GetMarketNewsSchema, getMarketNews } from "./tools/market-news.js";
+import { GetIndexHistorySchema, getIndexHistory } from "./tools/index-history.js";
+import { GetStockHistorySchema, getStockHistory } from "./tools/stock-history.js";
 
 const config = loadConfig();
 setLogLevel(config.logLevel);
@@ -128,6 +130,40 @@ function createMcpServer(): McpServer {
     }
   );
 
+  server.tool(
+    "get_index_history",
+    "Récupère l'historique des cours d'un indice boursier africain (close + volume quotidien depuis 2015). Données disponibles pour toutes les places de marché sans abonnement.",
+    GetIndexHistorySchema.shape,
+    async (params) => {
+      try {
+        const result = await getIndexHistory(params, fetcher);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Erreur: ${(error as Error).message}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "get_stock_history",
+    "Récupère l'historique OHLCV d'une action individuelle cotée sur une place de marché africaine. Nécessite un compte premium african-markets.com (AFRICAN_MARKETS_USERNAME / AFRICAN_MARKETS_PASSWORD dans .env).",
+    GetStockHistorySchema.shape,
+    async (params) => {
+      try {
+        const result = await getStockHistory(params, fetcher);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Erreur: ${(error as Error).message}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
   return server;
 }
 
@@ -178,6 +214,8 @@ pre{background:#1e1e1e;color:#d4d4d4;padding:16px;border-radius:8px;overflow-x:a
 <li><code>get_market_data</code> — cours, movers, indices en temps réel</li>
 <li><code>get_annual_reports</code> — rapports et publications PDF</li>
 <li><code>get_market_news</code> — actualités financières</li>
+<li><code>get_index_history</code> — historique de l'indice (close/volume, depuis 2015)</li>
+<li><code>get_stock_history</code> — historique OHLCV d'une action (premium)</li>
 </ul>
 
 <h2>Connexion depuis une app</h2>
