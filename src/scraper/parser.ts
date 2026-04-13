@@ -321,7 +321,7 @@ export function parseMarketNews(html: string): MarketNews[] {
 /** Parse a numeric value from text, handling French number formatting (1 234,56) */
 export function parseNumber(text: string): number {
   const cleaned = text
-    .replace(/[^\d,.\-]/g, "")
+    .replace(/[^\d,.-]/g, "")
     .replace(/\s/g, "")
     .replace(/,(\d{2})$/, ".$1") // French decimal: "1234,56" → "1234.56"
     .replace(/,/g, ""); // remaining commas are thousand separators

@@ -172,8 +172,6 @@ export async function getCompanyDocuments(
   // Strategy: find tables that contain edocman document links with .edocman_document_list_title2 and a date cell
   $("table.edocman_document_list").each((tableIdx, tableEl) => {
     // Skip the competitors table (has price/percent columns)
-    const firstRow = $(tableEl).find("tr").first();
-    const firstCellText = firstRow.find("td").first().text().trim();
 
     // Competitors table rows have company links to /company?code= paths
     // Dividend tables have amount patterns like "92 XOF"
@@ -192,7 +190,6 @@ export async function getCompanyDocuments(
 
       const cell0 = $(cells[0]).text().trim();
       const cell0Html = $(cells[0]).html() || "";
-      const cell1 = cells.length > 1 ? $(cells[1]).text().trim() : "";
 
       // Competitor table: first cell links to /company?code=
       if ($(cells[0]).find("a[href*='company?code=']").length > 0) {
