@@ -192,46 +192,93 @@ export function parseMarketIndices(html: string): MarketIndex[] {
  * Parse publications (annual reports, financial docs) from edocman.
  * URL pattern: /fr/bourse/{slug}/publications?layout=table
  * Uses table.edocman_document_list or table.table-document
+ *
+ * Returns enriched reports with documentType and date, plus totalPages from pagination.
+ * Date format on the site: MM-DD-YYYY (e.g. "02-03-2026") — normalised to "YYYY-MM-DD".
  */
-export function parsePublications(html: string, exchange: string): AnnualReport[] {
+export function parsePublications(
+  html: string,
+  exchange: string
+): { reports: AnnualReport[]; totalPages: number } {
   const $ = cheerio.load(html);
   const reports: AnnualReport[] = [];
 
+  // Extract total pages from the pagination "Fin" link: ?layout=table&start=N
+  let totalPages = 1;
+  $("a[title='Fin'], a[title='End']").each((_, el) => {
+    const href = $(el).attr("href") || "";
+    const match = href.match(/[?&]start=(\d+)/);
+    if (match) {
+      const lastStart = parseInt(match[1], 10);
+      totalPages = Math.floor(lastStart / 10) + 1;
+    }
+  });
+
   $("table.edocman_document_list tr, table.table-document tr").each((_, row) => {
     const $row = $(row);
-    const titleEl = $row.find(".edocman_document_link, .edocman_document_list_title a").first();
-    const title = titleEl.text().trim();
-    if (!title) return;
+    // Prefer the aria-label which contains the clean title; fall back to link text
+    const titleEl = $row.find(".edocman-document-title-td a[aria-label]").first();
+    const titleRaw = titleEl.attr("aria-label")?.trim()
+      || $row.find(".edocman_document_link, .edocman_document_list_title a").first().text().trim();
+    if (!titleRaw) return;
 
     const viewLink = $row.find("a.edocman-download-link[href*=viewdocument]").attr("href")
       || $row.find("a[href*=viewdocument]").attr("href") || "";
     const downloadLink = $row.find("a[href*=download]").attr("href") || "";
 
     // Title format is typically "SYMBOL | Document Title"
-    const titleParts = title.split("|").map((s) => s.trim());
+    const titleParts = titleRaw.split("|").map((s) => s.trim());
     const symbol = titleParts.length > 1 ? titleParts[0] : "";
-    const docTitle = titleParts.length > 1 ? titleParts.slice(1).join(" | ") : title;
+    const docTitle = titleParts.length > 1 ? titleParts.slice(1).join(" | ") : titleRaw;
+    const documentType = titleParts.length > 1 ? titleParts.slice(1).join(" | ") : undefined;
 
-    // Try to extract year from title or date
-    const dateEl = $row.find(".edocman_document_list_size, .document-date").text().trim();
-    const yearMatch = title.match(/20\d{2}/) || dateEl.match(/20\d{2}/);
-    const year = yearMatch ? parseInt(yearMatch[0], 10) : new Date().getFullYear();
+    // Extract and normalise date from .dateinformation (format: MM-DD-YYYY or MM-DD-YYYY with whitespace)
+    const dateRawText = $row.find(".dateinformation").text().trim();
+    // Remove the calendar icon text and any non-date characters, keep only digits and dashes
+    const dateRaw = dateRawText.replace(/[^\d-]/g, "").trim();
+    let publishDate: string | undefined;
+    let year = new Date().getFullYear();
+
+    if (dateRaw) {
+      // Try MM-DD-YYYY pattern
+      const mdyMatch = dateRaw.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+      if (mdyMatch) {
+        publishDate = `${mdyMatch[3]}-${mdyMatch[1]}-${mdyMatch[2]}`;
+        year = parseInt(mdyMatch[3], 10);
+      } else {
+        // Fallback: extract year from raw date text
+        const yearMatch = dateRaw.match(/20\d{2}/);
+        if (yearMatch) {
+          year = parseInt(yearMatch[0], 10);
+        }
+        publishDate = dateRaw || undefined;
+      }
+    }
+
+    // If no date from .dateinformation, try to find year from the title
+    if (!publishDate) {
+      const yearMatch = titleRaw.match(/20\d{2}/);
+      if (yearMatch) {
+        year = parseInt(yearMatch[0], 10);
+      }
+    }
 
     const url = downloadLink || viewLink;
 
     reports.push({
-      company: docTitle,
+      company: symbol || docTitle,
       symbol,
       exchange,
       year,
       title: docTitle,
       url: url.startsWith("http") ? url : `https://www.african-markets.com${url}`,
-      fileType: downloadLink.includes("pdf") || title.toLowerCase().includes("pdf") ? "PDF" : undefined,
-      publishDate: dateEl || undefined,
+      fileType: downloadLink.includes("pdf") || titleRaw.toLowerCase().includes("pdf") ? "PDF" : undefined,
+      publishDate,
+      documentType,
     });
   });
 
-  return reports;
+  return { reports, totalPages };
 }
 
 /**
@@ -274,7 +321,7 @@ export function parseMarketNews(html: string): MarketNews[] {
 /** Parse a numeric value from text, handling French number formatting (1 234,56) */
 export function parseNumber(text: string): number {
   const cleaned = text
-    .replace(/[^\d,.\-]/g, "")
+    .replace(/[^\d,.-]/g, "")
     .replace(/\s/g, "")
     .replace(/,(\d{2})$/, ".$1") // French decimal: "1234,56" → "1234.56"
     .replace(/,/g, ""); // remaining commas are thousand separators

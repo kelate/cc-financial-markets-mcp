@@ -142,13 +142,77 @@ describe("parsePublications", () => {
         </tr>
       </table>
     `;
-    const reports = parsePublications(html, "BRVM");
+    const { reports, totalPages } = parsePublications(html, "BRVM");
     expect(reports).toHaveLength(2);
     expect(reports[0].symbol).toBe("BRVM");
     expect(reports[0].title).toBe("Résultats de première cotation TPBJ");
     expect(reports[0].url).toContain("download");
     expect(reports[1].symbol).toBe("SPHC");
     expect(reports[1].title).toBe("Communiqué");
+    expect(totalPages).toBe(1); // no pagination link → default 1
+  });
+
+  it("extracts date from .dateinformation and normalises to YYYY-MM-DD", () => {
+    const html = `
+      <table class="edocman_document_list">
+        <tr>
+          <td class="edocman-document-title-td">
+            <a class="edocman_document_link" href="/fr/component/edocman/58538/viewdocument/58538"
+               aria-label="ORAC | Notation financière">ORAC | Notation financière</a>
+            <div class="sizeinformation">257.69 KB</div>
+            <div class="dateinformation"><i class="edicon edicon-calendar"></i>&nbsp;02-03-2026</div>
+          </td>
+          <td class="center edocman-table-download-col">
+            <a href="/fr/bourse/brvm/publications/58538/download" class="edocman-download-link">Télécharger</a>
+          </td>
+        </tr>
+      </table>
+    `;
+    const { reports } = parsePublications(html, "BRVM");
+    expect(reports).toHaveLength(1);
+    expect(reports[0].symbol).toBe("ORAC");
+    expect(reports[0].documentType).toBe("Notation financière");
+    expect(reports[0].publishDate).toBe("2026-02-03");
+    expect(reports[0].year).toBe(2026);
+  });
+
+  it("extracts totalPages from pagination Fin link", () => {
+    const html = `
+      <table class="edocman_document_list">
+        <tr>
+          <td class="edocman-document-title-td">
+            <a class="edocman_document_link" href="/fr/component/edocman/1/viewdocument/1">BRVM | Rapport 2024</a>
+          </td>
+          <td class="center edocman-table-download-col">
+            <a href="/fr/bourse/brvm/publications/1/download" class="edocman-download-link">Télécharger</a>
+          </td>
+        </tr>
+      </table>
+      <div class="pagination">
+        <a title="Fin" href="/fr/bourse/brvm/publications?layout=table&amp;start=2020">Fin</a>
+      </div>
+    `;
+    const { totalPages } = parsePublications(html, "BRVM");
+    expect(totalPages).toBe(203); // floor(2020/10)+1
+  });
+
+  it("extracts documentType from SYMBOL | Type title", () => {
+    const html = `
+      <table class="edocman_document_list">
+        <tr>
+          <td class="edocman-document-title-td">
+            <a class="edocman_document_link" href="/fr/component/edocman/100/viewdocument/100">SONATEL | Rapport annuel 2023</a>
+          </td>
+          <td class="center edocman-table-download-col">
+            <a href="/fr/bourse/brvm/publications/100/download" class="edocman-download-link">Télécharger</a>
+          </td>
+        </tr>
+      </table>
+    `;
+    const { reports } = parsePublications(html, "BRVM");
+    expect(reports[0].documentType).toBe("Rapport annuel 2023");
+    expect(reports[0].symbol).toBe("SONATEL");
+    expect(reports[0].year).toBe(2023);
   });
 });
 

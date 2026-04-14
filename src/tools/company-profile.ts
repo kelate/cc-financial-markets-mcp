@@ -90,7 +90,7 @@ export async function getCompanyProfile(input: GetCompanyProfileInput, fetcher: 
 
   // --- Parse sections by h3 headings ---
   const annualReports: Document[] = [];
-  const financialStatements: Document[] = [];
+  const _financialStatements: Document[] = [];
   const communiques: Document[] = [];
   const research: Document[] = [];
   const dividends: Dividend[] = [];

@@ -15,6 +15,8 @@ export interface Config {
     username: string;
     password: string;
   };
+  /** Enable background cache warmer (proactive pre-fetch). Disable in serverless environments. */
+  cacheWarmingEnabled: boolean;
 }
 
 export function loadConfig(): Config {
@@ -31,5 +33,6 @@ export function loadConfig(): Config {
       username: process.env.AFRICAN_MARKETS_USERNAME || "",
       password: process.env.AFRICAN_MARKETS_PASSWORD || "",
     },
+    cacheWarmingEnabled: process.env.CACHE_WARMING_ENABLED !== "false",
   };
 }

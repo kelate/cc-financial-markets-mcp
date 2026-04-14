@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api/index" }
+  ],
+  "env": {
+    "AFRICAN_MARKETS_BASE_URL": "https://www.african-markets.com/fr",
+    "CACHE_TTL_SECONDS": "300",
+    "RATE_LIMIT_REQUESTS_PER_MINUTE": "30",
+    "LOG_LEVEL": "info",
+    "CACHE_WARMING_ENABLED": "false"
+  }
+}
