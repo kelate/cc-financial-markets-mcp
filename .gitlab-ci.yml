@@ -171,8 +171,7 @@ deploy_preview:
     on_stop: stop_preview
     auto_stop_in: 7 days
   script:
-    - vercel build --token=$VERCEL_TOKEN
-    - VERCEL_PREVIEW_URL=$(vercel deploy --prebuilt --token=$VERCEL_TOKEN)
+    - VERCEL_PREVIEW_URL=$(vercel deploy --token=$VERCEL_TOKEN)
     - echo "VERCEL_PREVIEW_URL=$VERCEL_PREVIEW_URL" >> deploy.env
     - echo "Deployed to $VERCEL_PREVIEW_URL"
   artifacts:
@@ -208,8 +207,7 @@ deploy_production:
     name: production
     url: $VERCEL_PRODUCTION_URL
   script:
-    - vercel build --prod --token=$VERCEL_TOKEN
-    - VERCEL_PRODUCTION_URL=$(vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN)
+    - VERCEL_PRODUCTION_URL=$(vercel deploy --prod --token=$VERCEL_TOKEN)
     - echo "VERCEL_PRODUCTION_URL=$VERCEL_PRODUCTION_URL" >> deploy.env
     - echo "Deployed to production $VERCEL_PRODUCTION_URL"
   artifacts:
