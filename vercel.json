@@ -1,17 +1,14 @@
 {
   "version": 2,
-  "name": "cc-financial-markets-mcp",
   "buildCommand": "npm run build",
   "functions": {
-    "dist/index.js": {
+    "api/index.js": {
       "maxDuration": 30,
       "memory": 512
     }
   },
-  "routes": [
-    { "src": "/health", "dest": "/dist/index.js" },
-    { "src": "/mcp(.*)", "dest": "/dist/index.js" },
-    { "src": "/(.*)", "dest": "/dist/index.js" }
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api/index" }
   ],
   "env": {
     "AFRICAN_MARKETS_BASE_URL": "https://www.african-markets.com/fr",
