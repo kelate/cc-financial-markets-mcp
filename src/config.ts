@@ -17,9 +17,16 @@ export interface Config {
   };
   /** Enable background cache warmer (proactive pre-fetch). Disable in serverless environments. */
   cacheWarmingEnabled: boolean;
+  redis: {
+    url: string;
+    enabled: boolean;
+  };
+  /** Secret for manual /admin/warm calls. Cron requests are authenticated via x-vercel-cron header. */
+  adminSecret: string;
 }
 
 export function loadConfig(): Config {
+  const redisUrl = process.env.REDIS_URL || "";
   return {
     baseUrl: process.env.AFRICAN_MARKETS_BASE_URL || "https://www.african-markets.com/fr",
     httpPort: parseInt(process.env.HTTP_PORT || "3100", 10),
@@ -34,5 +41,10 @@ export function loadConfig(): Config {
       password: process.env.AFRICAN_MARKETS_PASSWORD || "",
     },
     cacheWarmingEnabled: process.env.CACHE_WARMING_ENABLED !== "false",
+    redis: {
+      url: redisUrl,
+      enabled: !!redisUrl,
+    },
+    adminSecret: process.env.MCP_ADMIN_SECRET || "",
   };
 }

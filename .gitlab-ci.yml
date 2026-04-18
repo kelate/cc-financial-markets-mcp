@@ -54,6 +54,12 @@ stages:
 .vercel_base:
   image: node:22-alpine
   before_script:
+    # Vercel Pro rejects deployments whose git commit author is not a verified
+    # team member. GitLab merge commits are authored by the bot (Ciclone).
+    # Amend HEAD locally (no push) to reset author to the verified Vercel email.
+    - git config user.email "contact.kemex@gmail.com"
+    - git config user.name "kelate"
+    - git commit --allow-empty --amend --no-edit --reset-author
     - npm install -g vercel@latest --silent
     - vercel pull --yes --environment=${VERCEL_ENV:-preview} --token=$VERCEL_TOKEN
 
