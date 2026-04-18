@@ -3,11 +3,31 @@
   "rewrites": [
     { "source": "/(.*)", "destination": "/api/index" }
   ],
+  "crons": [
+    {
+      "path": "/admin/warm?exchange=open",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/admin/warm?exchange=all",
+      "schedule": "0 * * * *"
+    }
+  ],
   "env": {
     "AFRICAN_MARKETS_BASE_URL": "https://www.african-markets.com/fr",
     "CACHE_TTL_SECONDS": "300",
     "RATE_LIMIT_REQUESTS_PER_MINUTE": "30",
     "LOG_LEVEL": "info",
     "CACHE_WARMING_ENABLED": "false"
-  }
+  },
+  "headers": [
+    {
+      "source": "/health",
+      "headers": [{ "key": "Cache-Control", "value": "no-store" }]
+    },
+    {
+      "source": "/admin/(.*)",
+      "headers": [{ "key": "Cache-Control", "value": "no-store" }]
+    }
+  ]
 }
