@@ -164,3 +164,58 @@ describe("Serveur HTTP — CORS", () => {
     expect(response.headers.get("access-control-allow-origin")).toBe("*");
   });
 });
+
+describe("Serveur HTTP — POST /admin/warm", () => {
+  it("retourne 401 sans header ni secret", async () => {
+    const response = await fetch(`${BASE_URL}/admin/warm`, {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(401);
+    const body = await response.json() as Record<string, unknown>;
+    expect(body.error).toMatch(/unauthorized/i);
+  });
+
+  it("retourne 401 avec un secret invalide", async () => {
+    const response = await fetch(`${BASE_URL}/admin/warm?secret=wrong-secret`, {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(401);
+  });
+
+  it("retourne 200 avec le header x-vercel-cron: 1 (exchange=open)", async () => {
+    const response = await fetch(`${BASE_URL}/admin/warm?exchange=open`, {
+      method: "POST",
+      headers: { "x-vercel-cron": "1" },
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as Record<string, unknown>;
+    expect(body).toHaveProperty("ok", true);
+    expect(body).toHaveProperty("target", "open");
+    expect(body).toHaveProperty("exchanges");
+  });
+
+  it("retourne 200 avec un code exchange inexistant (warm échoue proprement)", async () => {
+    const response = await fetch(`${BASE_URL}/admin/warm?exchange=FAKE_EXCHANGE`, {
+      method: "POST",
+      headers: { "x-vercel-cron": "1" },
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as { ok: boolean; target: string; exchanges: Record<string, { ok: boolean }> };
+    expect(body.ok).toBe(true);
+    expect(body.target).toBe("FAKE_EXCHANGE");
+    expect(body.exchanges).toHaveProperty("FAKE_EXCHANGE");
+    expect(body.exchanges["FAKE_EXCHANGE"].ok).toBe(false);
+  });
+
+  it("retourne 404 pour GET /admin/warm (méthode non supportée)", async () => {
+    const response = await fetch(`${BASE_URL}/admin/warm`, {
+      method: "GET",
+    });
+
+    expect(response.status).toBe(404);
+  });
+});
