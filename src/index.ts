@@ -56,6 +56,10 @@ const fetcher = new Fetcher({
   rateLimiter,
   cache,
   auth: config.auth,
+  circuitBreaker: {
+    failureThreshold: config.circuitBreaker.failureThreshold,
+    timeoutMs: config.circuitBreaker.timeoutSeconds * 1000,
+  },
 });
 
 const redis = new RedisCache(config.redis.url);

@@ -29,6 +29,11 @@ export interface Config {
   allowedOrigins: string[];
   /** Max requests per minute per API key on /mcp. 0 = disabled. */
   mcpInboundRateLimitPerMinute: number;
+  /** Circuit breaker (resilience) for the scraper fetcher. */
+  circuitBreaker: {
+    failureThreshold: number;
+    timeoutSeconds: number;
+  };
 }
 
 export function loadConfig(): Config {
@@ -55,5 +60,9 @@ export function loadConfig(): Config {
     mcpApiKeys: (process.env.MCP_API_KEYS || "").split(",").map((k) => k.trim()).filter(Boolean),
     allowedOrigins: (process.env.MCP_ALLOWED_ORIGINS || "").split(",").map((o) => o.trim()).filter(Boolean),
     mcpInboundRateLimitPerMinute: parseInt(process.env.MCP_INBOUND_RATE_LIMIT || "60", 10),
+    circuitBreaker: {
+      failureThreshold: parseInt(process.env.CIRCUIT_BREAKER_THRESHOLD || "3", 10),
+      timeoutSeconds: parseInt(process.env.CIRCUIT_BREAKER_TIMEOUT_SECONDS || "30", 10),
+    },
   };
 }
