@@ -27,6 +27,8 @@ export interface Config {
   mcpApiKeys: string[];
   /** Allowed origins for CORS Access-Control-Allow-Origin. Empty = wildcard "*". */
   allowedOrigins: string[];
+  /** Max requests per minute per API key on /mcp. 0 = disabled. */
+  mcpInboundRateLimitPerMinute: number;
 }
 
 export function loadConfig(): Config {
@@ -52,5 +54,6 @@ export function loadConfig(): Config {
     adminSecret: process.env.MCP_ADMIN_SECRET || "",
     mcpApiKeys: (process.env.MCP_API_KEYS || "").split(",").map((k) => k.trim()).filter(Boolean),
     allowedOrigins: (process.env.MCP_ALLOWED_ORIGINS || "").split(",").map((o) => o.trim()).filter(Boolean),
+    mcpInboundRateLimitPerMinute: parseInt(process.env.MCP_INBOUND_RATE_LIMIT || "60", 10),
   };
 }

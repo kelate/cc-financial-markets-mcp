@@ -43,6 +43,7 @@ import { GetIndexHistorySchema, getIndexHistory } from "./tools/index-history.js
 import { GetStockHistorySchema, getStockHistory } from "./tools/stock-history.js";
 import { resolveOrigin, isAuthorizedMcp } from "./auth-mcp.js";
 import { generateRequestId, logRequest } from "./http-logger.js";
+import { InboundRateLimiter } from "./inbound-rate-limiter.js";
 
 const config = loadConfig();
 setLogLevel(config.logLevel);
@@ -59,6 +60,7 @@ const fetcher = new Fetcher({
 
 const redis = new RedisCache(config.redis.url);
 const warmer = new CacheWarmer(fetcher);
+const inboundRateLimiter = new InboundRateLimiter(config.mcpInboundRateLimitPerMinute);
 
 // ── Redis key helpers ─────────────────────────────────────────────────────────
 
@@ -494,6 +496,21 @@ pre{background:#1e1e1e;color:#d4d4d4;padding:16px;border-radius:8px;overflow-x:a
         id: null,
       }));
       return;
+    }
+
+    // Rate limit inbound requests per key fingerprint
+    if (config.mcpInboundRateLimitPerMinute > 0) {
+      const clientKey = authHeader.startsWith("Bearer ") ? authHeader.slice(7, 23) : "anonymous";
+      if (!inboundRateLimiter.isAllowed(clientKey)) {
+        const retryAfter = inboundRateLimiter.retryAfterSeconds(clientKey);
+        res.writeHead(429, { "Content-Type": "application/json", "Retry-After": String(retryAfter) });
+        res.end(JSON.stringify({
+          jsonrpc: "2.0",
+          error: { code: -32029, message: "Rate limit exceeded. Too many requests." },
+          id: null,
+        }));
+        return;
+      }
     }
 
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
