@@ -41,6 +41,7 @@ import { GetMarketDataSchema, getMarketData } from "./tools/market-data.js";
 import { GetMarketNewsSchema, getMarketNews } from "./tools/market-news.js";
 import { GetIndexHistorySchema, getIndexHistory } from "./tools/index-history.js";
 import { GetStockHistorySchema, getStockHistory } from "./tools/stock-history.js";
+import { resolveOrigin, isAuthorizedMcp } from "./auth-mcp.js";
 
 const config = loadConfig();
 setLogLevel(config.logLevel);
@@ -359,10 +360,12 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
   const baseHref = `${protocol}://${host}`;
   const url = new URL(req.url || "/", baseHref);
 
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  const origin = resolveOrigin(req, config.allowedOrigins);
+  res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, mcp-session-id, Authorization");
   res.setHeader("Access-Control-Expose-Headers", "mcp-session-id");
+  if (config.allowedOrigins.length > 0) res.setHeader("Vary", "Origin");
 
   if (req.method === "OPTIONS") {
     res.writeHead(204);
@@ -467,6 +470,17 @@ pre{background:#1e1e1e;color:#d4d4d4;padding:16px;border-radius:8px;overflow-x:a
       return;
     }
 
+    // Auth required for all non-GET MCP requests
+    if (!isAuthorizedMcp(req, config.mcpApiKeys)) {
+      res.writeHead(401, { "Content-Type": "application/json", "WWW-Authenticate": "Bearer" });
+      res.end(JSON.stringify({
+        jsonrpc: "2.0",
+        error: { code: -32001, message: "Unauthorized. Provide a valid Bearer token in Authorization header." },
+        id: null,
+      }));
+      return;
+    }
+
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
     if (sessionId && sessions.has(sessionId)) {
@@ -550,6 +564,9 @@ if (isScript) {
       process.stderr.write(`   Warm endpoint:  http://localhost:${httpPort}/admin/warm\n`);
       process.stderr.write(`   Redis:          ${redis.enabled ? "enabled" : "disabled"}\n\n`);
     });
+    if (config.mcpApiKeys.length === 0) {
+      logger.warn("MCP endpoint unauthenticated — set MCP_API_KEYS to enable Bearer auth");
+    }
     startWarmer();
   }
 

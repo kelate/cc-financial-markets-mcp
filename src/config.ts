@@ -23,6 +23,10 @@ export interface Config {
   };
   /** Secret for manual /admin/warm calls. Cron requests are authenticated via x-vercel-cron header. */
   adminSecret: string;
+  /** API keys for /mcp Bearer auth. Empty = auth disabled (stdio/dev mode). */
+  mcpApiKeys: string[];
+  /** Allowed origins for CORS Access-Control-Allow-Origin. Empty = wildcard "*". */
+  allowedOrigins: string[];
 }
 
 export function loadConfig(): Config {
@@ -46,5 +50,7 @@ export function loadConfig(): Config {
       enabled: !!redisUrl,
     },
     adminSecret: process.env.MCP_ADMIN_SECRET || "",
+    mcpApiKeys: (process.env.MCP_API_KEYS || "").split(",").map((k) => k.trim()).filter(Boolean),
+    allowedOrigins: (process.env.MCP_ALLOWED_ORIGINS || "").split(",").map((o) => o.trim()).filter(Boolean),
   };
 }
