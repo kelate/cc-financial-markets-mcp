@@ -165,6 +165,35 @@ describe("Serveur HTTP — CORS", () => {
   });
 });
 
+describe("Serveur HTTP — Observabilité (x-request-id)", () => {
+  it("inclut x-request-id sur toutes les réponses", async () => {
+    const response = await fetch(`${BASE_URL}/health`);
+    expect(response.headers.get("x-request-id")).toMatch(/^req-[0-9a-f]{8}$/);
+  });
+
+  it("génère un x-request-id différent pour chaque requête", async () => {
+    const [r1, r2] = await Promise.all([
+      fetch(`${BASE_URL}/health`),
+      fetch(`${BASE_URL}/health`),
+    ]);
+    const id1 = r1.headers.get("x-request-id");
+    const id2 = r2.headers.get("x-request-id");
+    expect(id1).toMatch(/^req-[0-9a-f]{8}$/);
+    expect(id2).toMatch(/^req-[0-9a-f]{8}$/);
+    expect(id1).not.toBe(id2);
+  });
+
+  it("inclut x-request-id sur les réponses 404", async () => {
+    const response = await fetch(`${BASE_URL}/unknown-path`);
+    expect(response.headers.get("x-request-id")).toMatch(/^req-[0-9a-f]{8}$/);
+  });
+
+  it("inclut x-request-id sur les réponses OPTIONS", async () => {
+    const response = await fetch(`${BASE_URL}/mcp`, { method: "OPTIONS" });
+    expect(response.headers.get("x-request-id")).toMatch(/^req-[0-9a-f]{8}$/);
+  });
+});
+
 describe("Serveur HTTP — POST /admin/warm", () => {
   it("retourne 401 sans header ni secret", async () => {
     const response = await fetch(`${BASE_URL}/admin/warm`, {

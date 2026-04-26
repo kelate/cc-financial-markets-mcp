@@ -42,6 +42,7 @@ import { GetMarketNewsSchema, getMarketNews } from "./tools/market-news.js";
 import { GetIndexHistorySchema, getIndexHistory } from "./tools/index-history.js";
 import { GetStockHistorySchema, getStockHistory } from "./tools/stock-history.js";
 import { resolveOrigin, isAuthorizedMcp } from "./auth-mcp.js";
+import { generateRequestId, logRequest } from "./http-logger.js";
 
 const config = loadConfig();
 setLogLevel(config.logLevel);
@@ -359,6 +360,20 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
   const protocol = "https";
   const baseHref = `${protocol}://${host}`;
   const url = new URL(req.url || "/", baseHref);
+  const requestId = generateRequestId();
+  const t0 = Date.now();
+  const authHeader = (req.headers["authorization"] ?? "") as string;
+  const keyHint = authHeader.startsWith("Bearer ") ? authHeader.slice(7, 15) : undefined;
+
+  res.setHeader("x-request-id", requestId);
+  res.on("finish", () => logRequest({
+    requestId,
+    method: req.method ?? "?",
+    path: url.pathname,
+    status: res.statusCode,
+    latencyMs: Date.now() - t0,
+    keyHint,
+  }));
 
   const origin = resolveOrigin(req, config.allowedOrigins);
   res.setHeader("Access-Control-Allow-Origin", origin);
