@@ -6,6 +6,7 @@
 import { Cache } from "../cache/cache.js";
 import { logger } from "../logger.js";
 import { cookieHeader, invalidateSession, isAuthenticated, login } from "./auth.js";
+import { CircuitBreaker, CircuitBreakerOptions, CircuitOpenError } from "./circuit-breaker.js";
 import { RateLimiter } from "./rate-limiter.js";
 
 export interface FetcherOptions {
@@ -15,6 +16,7 @@ export interface FetcherOptions {
   cache: Cache;
   auth: { username: string; password: string };
   maxRetries?: number;
+  circuitBreaker?: Partial<CircuitBreakerOptions>;
 }
 
 export class Fetcher {
@@ -24,6 +26,7 @@ export class Fetcher {
   private readonly cache: Cache;
   private readonly auth: { username: string; password: string };
   private readonly maxRetries: number;
+  private readonly circuit: CircuitBreaker;
   private authAttempted = false;
 
   constructor(options: FetcherOptions) {
@@ -33,6 +36,7 @@ export class Fetcher {
     this.cache = options.cache;
     this.auth = options.auth;
     this.maxRetries = options.maxRetries ?? 3;
+    this.circuit = new CircuitBreaker(options.circuitBreaker);
   }
 
   /** Ensure we're logged in before making requests. Called lazily on first fetch. */
@@ -68,53 +72,75 @@ export class Fetcher {
 
     await this.ensureAuth();
 
-    let lastError: Error | undefined;
-    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
-      try {
-        await this.rateLimiter.acquire();
-        logger.debug("Fetching page", { url, attempt, authenticated: isAuthenticated() });
+    try {
+      return await this.circuit.call(async () => {
+        let lastError: Error | undefined;
+        for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+          try {
+            await this.rateLimiter.acquire();
+            logger.debug("Fetching page", {
+              url,
+              attempt,
+              authenticated: isAuthenticated(),
+              circuit: this.circuit.currentState,
+            });
 
-        const headers: Record<string, string> = {
-          "User-Agent": this.userAgent,
-          Accept: "text/html,application/xhtml+xml",
-          "Accept-Language": "fr-FR,fr;q=0.9",
-        };
+            const headers: Record<string, string> = {
+              "User-Agent": this.userAgent,
+              Accept: "text/html,application/xhtml+xml",
+              "Accept-Language": "fr-FR,fr;q=0.9",
+            };
 
-        // Attach session cookies if authenticated
-        if (isAuthenticated()) {
-          headers.Cookie = cookieHeader();
+            // Attach session cookies if authenticated
+            if (isAuthenticated()) {
+              headers.Cookie = cookieHeader();
+            }
+
+            const response = await fetch(url, { headers, redirect: "follow" });
+
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const html = await response.text();
+
+            // Detect if session expired (page shows login prompt instead of content)
+            if (isAuthenticated() && html.includes("Abonnez-vous pour un accès illimité") && this.auth.username) {
+              logger.warn("Session expired — re-authenticating");
+              invalidateSession();
+              this.authAttempted = false;
+              await this.ensureAuth();
+              // Retry with fresh session
+              continue;
+            }
+
+            this.cache.set(cacheKey, html, cacheTtl);
+            logger.info("Page fetched", { url, size: html.length, premium: isAuthenticated() });
+            return html;
+          } catch (error) {
+            lastError = error as Error;
+            logger.warn("Fetch failed", { url, attempt, error: lastError.message });
+            if (attempt < this.maxRetries) {
+              await new Promise((r) => setTimeout(r, 1000 * attempt));
+            }
+          }
         }
 
-        const response = await fetch(url, { headers, redirect: "follow" });
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const html = await response.text();
-
-        // Detect if session expired (page shows login prompt instead of content)
-        if (isAuthenticated() && html.includes("Abonnez-vous pour un accès illimité") && this.auth.username) {
-          logger.warn("Session expired — re-authenticating");
-          invalidateSession();
-          this.authAttempted = false;
-          await this.ensureAuth();
-          // Retry with fresh session
-          continue;
-        }
-
-        this.cache.set(cacheKey, html, cacheTtl);
-        logger.info("Page fetched", { url, size: html.length, premium: isAuthenticated() });
-        return html;
-      } catch (error) {
-        lastError = error as Error;
-        logger.warn("Fetch failed", { url, attempt, error: lastError.message });
-        if (attempt < this.maxRetries) {
-          await new Promise((r) => setTimeout(r, 1000 * attempt));
-        }
+        throw new Error(`Failed to fetch ${url} after ${this.maxRetries} attempts: ${lastError?.message}`);
+      });
+    } catch (error) {
+      if (error instanceof CircuitOpenError) {
+        logger.warn("Circuit breaker open — short-circuiting fetch", {
+          url,
+          retryAfterMs: this.circuit.retryAfterMs(),
+        });
       }
+      throw error;
     }
+  }
 
-    throw new Error(`Failed to fetch ${url} after ${this.maxRetries} attempts: ${lastError?.message}`);
+  /** Current state of the underlying circuit breaker (for diagnostics / health endpoints). */
+  get circuitState() {
+    return this.circuit.currentState;
   }
 }

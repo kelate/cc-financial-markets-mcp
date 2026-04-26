@@ -17,9 +17,27 @@ export interface Config {
   };
   /** Enable background cache warmer (proactive pre-fetch). Disable in serverless environments. */
   cacheWarmingEnabled: boolean;
+  redis: {
+    url: string;
+    enabled: boolean;
+  };
+  /** Secret for manual /admin/warm calls. Cron requests are authenticated via x-vercel-cron header. */
+  adminSecret: string;
+  /** API keys for /mcp Bearer auth. Empty = auth disabled (stdio/dev mode). */
+  mcpApiKeys: string[];
+  /** Allowed origins for CORS Access-Control-Allow-Origin. Empty = wildcard "*". */
+  allowedOrigins: string[];
+  /** Max requests per minute per API key on /mcp. 0 = disabled. */
+  mcpInboundRateLimitPerMinute: number;
+  /** Circuit breaker (resilience) for the scraper fetcher. */
+  circuitBreaker: {
+    failureThreshold: number;
+    timeoutSeconds: number;
+  };
 }
 
 export function loadConfig(): Config {
+  const redisUrl = process.env.REDIS_URL || "";
   return {
     baseUrl: process.env.AFRICAN_MARKETS_BASE_URL || "https://www.african-markets.com/fr",
     httpPort: parseInt(process.env.HTTP_PORT || "3100", 10),
@@ -34,5 +52,17 @@ export function loadConfig(): Config {
       password: process.env.AFRICAN_MARKETS_PASSWORD || "",
     },
     cacheWarmingEnabled: process.env.CACHE_WARMING_ENABLED !== "false",
+    redis: {
+      url: redisUrl,
+      enabled: !!redisUrl,
+    },
+    adminSecret: process.env.MCP_ADMIN_SECRET || "",
+    mcpApiKeys: (process.env.MCP_API_KEYS || "").split(",").map((k) => k.trim()).filter(Boolean),
+    allowedOrigins: (process.env.MCP_ALLOWED_ORIGINS || "").split(",").map((o) => o.trim()).filter(Boolean),
+    mcpInboundRateLimitPerMinute: parseInt(process.env.MCP_INBOUND_RATE_LIMIT || "60", 10),
+    circuitBreaker: {
+      failureThreshold: parseInt(process.env.CIRCUIT_BREAKER_THRESHOLD || "3", 10),
+      timeoutSeconds: parseInt(process.env.CIRCUIT_BREAKER_TIMEOUT_SECONDS || "30", 10),
+    },
   };
 }
