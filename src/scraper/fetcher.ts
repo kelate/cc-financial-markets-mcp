@@ -141,6 +141,9 @@ export class Fetcher {
 
   /** Current state of the underlying circuit breaker (for diagnostics / health endpoints). */
   get circuitState() {
-    return this.circuit.currentState;
+    return {
+      state: this.circuit.currentState,
+      retryAfterMs: this.circuit.retryAfterMs(),
+    };
   }
 }

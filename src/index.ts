@@ -19,6 +19,7 @@
 
 import "dotenv/config";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -47,6 +48,9 @@ import { InboundRateLimiter } from "./inbound-rate-limiter.js";
 
 const config = loadConfig();
 setLogLevel(config.logLevel);
+
+const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
+const SERVER_VERSION = pkg.version;
 
 const cache = new Cache(config.cacheTtlSeconds);
 const rateLimiter = new RateLimiter(config.rateLimitPerMinute);
@@ -185,6 +189,17 @@ function isAuthorizedWarm(req: IncomingMessage, url: URL): boolean {
   const secret = url.searchParams.get("secret")
     || (req.headers.authorization?.replace("Bearer ", "") ?? "");
   return !!config.adminSecret && secret === config.adminSecret;
+}
+
+// ── Auth check for /admin/status ──────────────────────────────────────────────
+// Same pattern as /admin/warm, but when adminSecret is empty (e.g. local dev),
+// the endpoint is open — useful for quick diagnostics from a browser.
+function isAuthorizedStatus(req: IncomingMessage, url: URL): boolean {
+  if (!config.adminSecret) return true;
+  if (req.headers["x-vercel-cron"] === "1") return true;
+  const secret = url.searchParams.get("secret")
+    || (req.headers.authorization?.replace("Bearer ", "") ?? "");
+  return secret === config.adminSecret;
 }
 
 // ── MCP server factory ────────────────────────────────────────────────────────
@@ -417,6 +432,28 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
     return;
   }
 
+  // ── /admin/status ─────────────────────────────────────────────────────────
+  // Lightweight diagnostics: uptime, version, circuit-breaker state, cache size,
+  // Redis flag. Doesn't probe Redis or scrape — safe to call frequently.
+  if (url.pathname === "/admin/status" && req.method === "GET") {
+    if (!isAuthorizedStatus(req, url)) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Unauthorized. Provide ?secret=MCP_ADMIN_SECRET or x-vercel-cron header." }));
+      return;
+    }
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      ok: true,
+      uptime: Math.round(process.uptime() * 10) / 10,
+      version: SERVER_VERSION,
+      circuitBreaker: fetcher.circuitState,
+      cache: { size: cache.size },
+      redis: { enabled: redis.enabled },
+    }));
+    return;
+  }
+
   // ── /health ────────────────────────────────────────────────────────────────
   if (url.pathname === "/health") {
     const openExchanges = getOpenExchanges();
@@ -552,7 +589,7 @@ pre{background:#1e1e1e;color:#d4d4d4;padding:16px;border-radius:8px;overflow-x:a
   res.writeHead(404, { "Content-Type": "application/json" });
   res.end(JSON.stringify({
     error: "Not found",
-    endpoints: { mcp: `${baseHref}/mcp`, health: `${baseHref}/health`, warm: `${baseHref}/admin/warm` },
+    endpoints: { mcp: `${baseHref}/mcp`, health: `${baseHref}/health`, warm: `${baseHref}/admin/warm`, status: `${baseHref}/admin/status` },
   }));
 }
 

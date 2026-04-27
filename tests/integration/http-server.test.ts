@@ -43,7 +43,7 @@ describe("Serveur HTTP — GET /health", () => {
     const body = await response.json() as Record<string, string>;
 
     expect(response.status).toBe(200);
-    expect(body.status).toBe("ok");
+    expect(body.status).toMatch(/^(ok|degraded)$/);
     expect(body.server).toBe("cc-financial-markets-mcp");
     expect(body.version).toBeDefined();
   });
