@@ -155,6 +155,7 @@ describe("Circuit breaker — cycle CLOSED → OPEN → HALF_OPEN", () => {
         RATE_LIMIT_REQUESTS_PER_MINUTE: "600",
         MCP_INBOUND_RATE_LIMIT: "0",
         REDIS_URL: "",
+        CACHE_WARMING_ENABLED: "false",
       },
       stdio: ["ignore", "ignore", "pipe"],
     });
