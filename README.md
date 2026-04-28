@@ -11,8 +11,10 @@
 - [Places de marché supportées](#places-de-marché-supportées)
 - [Installation](#installation)
 - [Configuration](#configuration)
+- [Authentification (production)](#authentification-production)
 - [Modes de transport](#modes-de-transport)
-  - [stdio — Claude Code / Claude Desktop](#stdio--claude-code--claude-desktop)
+  - [Serveur distant — HTTP (production)](#serveur-distant--http-production)
+  - [stdio — Claude Code / Claude Desktop (local)](#stdio--claude-code--claude-desktop-local)
   - [HTTP — intégration externe](#http--intégration-externe)
   - [Vercel — déploiement serverless](#vercel--déploiement-serverless)
   - [Docker](#docker)
@@ -25,7 +27,7 @@
 
 ## Vue d'ensemble
 
-`cc-financial-markets-mcp` expose les données de 18 bourses africaines via le protocole MCP. Il s'intègre directement à Claude Code, Claude Desktop ou toute application compatible MCP.
+`cc-financial-markets-mcp` expose les données de 20 bourses africaines via le protocole MCP. Il s'intègre directement à Claude Code, Claude Desktop ou toute application compatible MCP.
 
 **Fonctionnalités principales :**
 
@@ -34,8 +36,10 @@
 - **Documents** — rapports annuels, états financiers, communiqués (avec pagination)
 - **Actualités** — derniers articles financiers africains
 - **Profils d'entreprises** — fiche complète avec dividendes (premium)
-- **Cache proactif** — warmer de cache adaptatif selon les horaires de trading
-- **Rate limiter** — token bucket partagé entre tous les outils
+- **Cache proactif** — warmer adaptatif selon les horaires de trading + Redis L2
+- **Circuit breaker** — protection automatique contre les pannes du scraper (CLOSED → OPEN → HALF_OPEN)
+- **Rate limiter** — token bucket partagé entre tous les outils (outbound) + limiteur inbound par clé API
+- **Authentification Bearer** — sécurisation `/mcp` par token API en production
 - **Double transport** — stdio pour les clients MCP natifs, HTTP/SSE pour les apps externes
 
 ---
@@ -44,7 +48,7 @@
 
 | Outil | Description | Premium |
 |-------|-------------|---------|
-| `list_exchanges` | Liste les 18 places de marché avec codes, pays et devises | Non |
+| `list_exchanges` | Liste les 20 places de marché avec codes, pays et devises | Non |
 | `get_market_data` | Cours des actions, movers et indices en temps réel | Non |
 | `get_index_history` | Historique close + volume d'un indice (depuis 2015) | Non |
 | `get_annual_reports` | Rapports annuels et publications avec pagination | Non |
@@ -59,26 +63,30 @@ Les outils **premium** nécessitent un compte sur african-markets.com (`AFRICAN_
 
 ## Places de marché supportées
 
-| Code | Bourse | Pays | Devise |
-|------|--------|------|--------|
-| JSE | Johannesburg Stock Exchange | Afrique du Sud | ZAR |
-| BSE | Botswana Stock Exchange | Botswana | BWP |
-| BRVM | Bourse Régionale des Valeurs Mobilières | Côte d'Ivoire (UEMOA) | XOF |
-| EGX | Egyptian Exchange | Égypte | EGP |
-| GSE | Ghana Stock Exchange | Ghana | GHS |
-| NSE | Nairobi Securities Exchange | Kenya | KES |
-| MSE | Malawi Stock Exchange | Malawi | MWK |
-| BVC | Bourse de Casablanca | Maroc | MAD |
-| SEM | Stock Exchange of Mauritius | Maurice | MUR |
-| NSX | Namibian Stock Exchange | Namibie | NAD |
-| NGX | Nigerian Exchange | Nigeria | NGN |
-| USE | Uganda Securities Exchange | Ouganda | UGX |
-| RSE | Rwanda Stock Exchange | Rwanda | RWF |
-| DSE | Dar es Salaam Stock Exchange | Tanzanie | TZS |
-| BVMT | Bourse de Tunis | Tunisie | TND |
-| LUSE | Lusaka Stock Exchange | Zambie | ZMW |
-| ESE | Bourse d'Eswatini | Eswatini | SZL |
-| ZSE | Zimbabwe Stock Exchange | Zimbabwe | ZWL |
+| Code | Bourse | Pays | Devise | Source |
+|------|--------|------|--------|--------|
+| JSE | Johannesburg Stock Exchange | Afrique du Sud | ZAR | african-markets.com |
+| BSE | Botswana Stock Exchange | Botswana | BWP | african-markets.com |
+| BRVM | Bourse Régionale des Valeurs Mobilières | Côte d'Ivoire (UEMOA) | XOF | african-markets.com |
+| EGX | Egyptian Exchange | Égypte | EGP | african-markets.com |
+| GSE | Ghana Stock Exchange | Ghana | GHS | african-markets.com |
+| NSE | Nairobi Securities Exchange | Kenya | KES | african-markets.com |
+| MSE | Malawi Stock Exchange | Malawi | MWK | african-markets.com |
+| BVC | Bourse de Casablanca | Maroc | MAD | african-markets.com |
+| SEM | Stock Exchange of Mauritius | Maurice | MUR | african-markets.com |
+| NSX | Namibian Stock Exchange | Namibie | NAD | african-markets.com |
+| NGX | Nigerian Exchange | Nigeria | NGN | african-markets.com |
+| USE | Uganda Securities Exchange | Ouganda | UGX | african-markets.com |
+| RSE | Rwanda Stock Exchange | Rwanda | RWF | african-markets.com |
+| DSE | Dar es Salaam Stock Exchange | Tanzanie | TZS | african-markets.com |
+| BVMT | Bourse de Tunis | Tunisie | TND | african-markets.com |
+| LUSE | Lusaka Stock Exchange | Zambie | ZMW | african-markets.com |
+| ESE | Bourse d'Eswatini | Eswatini | SZL | african-markets.com |
+| ZSE | Zimbabwe Stock Exchange | Zimbabwe | ZWL | african-markets.com |
+| SGBV | Bourse d'Alger | Algérie | DZD | sgbv.dz (API directe) |
+| BVMAC | Bourse des Valeurs de l'Afrique Centrale | CEMAC | XAF | bosxch.bvm-ac.org (API directe) |
+
+> **SGBV** et **BVMAC** utilisent leurs propres APIs publiques — indépendantes d'african-markets.com.
 
 ---
 
@@ -100,48 +108,73 @@ npm run build
 Créez un fichier `.env` à la racine (voir `.env.example`) :
 
 ```env
-# URL de base du site (optionnel, valeur par défaut ci-dessous)
-AFRICAN_MARKETS_BASE_URL=https://www.african-markets.com/fr
-
-# Port HTTP pour le mode serveur HTTP (défaut: 3100)
-HTTP_PORT=3100
-
-# TTL du cache en secondes (défaut: 300 = 5 min)
-CACHE_TTL_SECONDS=300
-
-# TTL du cache pour les rapports annuels (défaut: 3600 = 1h)
-CACHE_TTL_REPORTS_SECONDS=3600
-
-# TTL du cache pour les profils d'entreprises (défaut: 1800 = 30 min)
-CACHE_TTL_PROFILES_SECONDS=1800
-
-# Limite de requêtes par minute (défaut: 30)
-RATE_LIMIT_REQUESTS_PER_MINUTE=30
-
-# Niveau de log : debug | info | warn | error (défaut: info)
-LOG_LEVEL=info
-
-# Activer le cache warmer de fond (défaut: true — désactiver en serverless)
-CACHE_WARMING_ENABLED=true
-
-# Identifiants premium african-markets.com (optionnel)
+# --- Abonnement african-markets.com (optionnel — accès premium) ---
 AFRICAN_MARKETS_USERNAME=
 AFRICAN_MARKETS_PASSWORD=
+
+# --- Serveur ---
+AFRICAN_MARKETS_BASE_URL=https://www.african-markets.com/fr
+HTTP_PORT=3100
+LOG_LEVEL=info
+
+# --- Cache ---
+CACHE_TTL_SECONDS=300
+CACHE_TTL_REPORTS_SECONDS=3600
+CACHE_TTL_PROFILES_SECONDS=1800
+
+# --- Cache Warmer (préchauffage proactif) ---
+# Pendant les heures de trading : toutes les 5 min
+# Hors séance : toutes les 60 min
+# Désactiver en serverless (Vercel, Lambda) : CACHE_WARMING_ENABLED=false
+CACHE_WARMING_ENABLED=true
+
+# --- Redis (cache L2 — optionnel) ---
+# Si défini, active le cache Redis en plus du cache mémoire.
+REDIS_URL=
+
+# --- Rate Limiting (outbound) ---
+RATE_LIMIT_REQUESTS_PER_MINUTE=30
+
+# --- Sécurité MCP ---
+# Clés API pour l'authentification Bearer sur /mcp (virgule-séparées).
+# Laisser vide pour désactiver (mode stdio/dev).
+MCP_API_KEYS=
+
+# Origins CORS autorisées. Laisser vide = wildcard "*".
+MCP_ALLOWED_ORIGINS=
+
+# Limite de requêtes par minute par clé API sur /mcp. 0 = désactivé.
+MCP_INBOUND_RATE_LIMIT=60
+
+# --- Admin ---
+# Secret pour déclencher manuellement le préchauffage du cache.
+MCP_ADMIN_SECRET=
+
+# --- Circuit Breaker (résilience scraper) ---
+CIRCUIT_BREAKER_THRESHOLD=3
+CIRCUIT_BREAKER_TIMEOUT_SECONDS=30
 ```
 
 ---
 
-## Modes de transport
+## Authentification (production)
 
-### Serveur distant (production) — HTTP
+En production, le endpoint `/mcp` est protégé par une authentification Bearer token.
 
-Si le serveur est déployé en production (Vercel, VPS, conteneur…), les clients MCP s'y connectent via l'URL directement — aucune installation locale requise.
+### Configurer les clés API
 
-**Claude Code** (via CLI) :
+Définissez une ou plusieurs clés dans `MCP_API_KEYS` (virgule-séparées) :
 
 ```bash
-claude mcp add --transport http financial-markets https://cc-financial-markets-mcp.vercel.app/mcp
+# Vercel
+vercel env add MCP_API_KEYS production
+# Entrer : ma-cle-app-1,ma-cle-app-2
+
+# Local
+MCP_API_KEYS=ma-cle-secrete node dist/index.js --http
 ```
+
+### Configurer les clients MCP avec auth
 
 **Claude Code** (`~/.claude/settings.json`) :
 
@@ -149,10 +182,21 @@ claude mcp add --transport http financial-markets https://cc-financial-markets-m
 {
   "mcpServers": {
     "financial-markets": {
-      "url": "https://cc-financial-markets-mcp.vercel.app/mcp"
+      "url": "https://cc-financial-markets-mcp.vercel.app/mcp",
+      "headers": {
+        "Authorization": "Bearer ma-cle-secrete"
+      }
     }
   }
 }
+```
+
+**Claude Code** (CLI) :
+
+```bash
+claude mcp add --transport http financial-markets \
+  https://cc-financial-markets-mcp.vercel.app/mcp \
+  --header "Authorization: Bearer ma-cle-secrete"
 ```
 
 **Claude Desktop** (`claude_desktop_config.json`) :
@@ -161,25 +205,40 @@ claude mcp add --transport http financial-markets https://cc-financial-markets-m
 {
   "mcpServers": {
     "financial-markets": {
-      "url": "https://cc-financial-markets-mcp.vercel.app/mcp"
+      "url": "https://cc-financial-markets-mcp.vercel.app/mcp",
+      "headers": {
+        "Authorization": "Bearer ma-cle-secrete"
+      }
     }
   }
 }
 ```
 
-Vérifiez que le serveur est en ligne avant de configurer le client :
+> Si `MCP_API_KEYS` est vide, l'authentification est désactivée — adapté au mode stdio local.
+
+---
+
+## Modes de transport
+
+### Serveur distant — HTTP (production)
+
+Si le serveur est déployé (Vercel, VPS, conteneur…), les clients s'y connectent directement :
 
 ```bash
+# Vérifier que le serveur est en ligne
 curl https://cc-financial-markets-mcp.vercel.app/health
+
+# Status détaillé (circuit breaker, cache, Redis)
+curl https://cc-financial-markets-mcp.vercel.app/admin/status
 ```
 
 ---
 
 ### stdio — Claude Code / Claude Desktop (local)
 
-Pour exécuter le serveur localement. Ajoutez le serveur dans votre configuration MCP :
+Ajoutez le serveur dans votre configuration MCP :
 
-**Claude Code** (`~/.claude/settings.json` ou via `claude mcp add`) :
+**Claude Code** (`~/.claude/settings.json`) :
 
 ```json
 {
@@ -204,6 +263,8 @@ Pour exécuter le serveur localement. Ajoutez le serveur dans votre configuratio
   }
 }
 ```
+
+---
 
 ### HTTP — intégration externe
 
@@ -216,11 +277,16 @@ node dist/index.js --http 8080     # Port personnalisé
 
 Le serveur expose :
 
-| Endpoint | Description |
-|----------|-------------|
-| `POST /mcp` | Session MCP (initialize + tool calls) |
-| `GET /mcp` | Page d'information en HTML (navigateur) |
-| `GET /health` | Health check JSON avec stats du cache warmer |
+| Endpoint | Méthode | Auth | Description |
+|----------|---------|------|-------------|
+| `POST /mcp` | POST | Bearer ¹ | Session MCP (initialize + tool calls) |
+| `GET /mcp` | GET | — | Page d'information HTML (navigateur) |
+| `GET /health` | GET | — | Health check JSON avec stats du cache warmer |
+| `GET /admin/status` | GET | Secret ² | Uptime, état circuit breaker, taille cache, Redis |
+| `POST /admin/warm` | POST | Cron / Secret ² | Préchauffage manuel du cache par exchange |
+
+¹ Requis si `MCP_API_KEYS` est configuré.  
+² Via header `x-vercel-cron: 1` (Vercel Cron) ou query `?secret=MCP_ADMIN_SECRET`.
 
 **Exemple d'appel depuis une application :**
 
@@ -229,6 +295,7 @@ Le serveur expose :
 curl -X POST http://localhost:3100/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
+  -H "Authorization: Bearer ma-cle-secrete" \
   -d '{
     "jsonrpc": "2.0", "id": 1,
     "method": "initialize",
@@ -239,10 +306,11 @@ curl -X POST http://localhost:3100/mcp \
     }
   }'
 
-# 2. Appeler un outil (remplacer SESSION_ID par la valeur du header mcp-session-id reçu)
+# 2. Appeler un outil (SESSION_ID = valeur du header mcp-session-id reçu)
 curl -X POST http://localhost:3100/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
+  -H "Authorization: Bearer ma-cle-secrete" \
   -H "mcp-session-id: SESSION_ID" \
   -d '{
     "jsonrpc": "2.0", "id": 2,
@@ -262,15 +330,27 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
   | node dist/index.js
 ```
 
+---
+
 ### Vercel — déploiement serverless
 
-Le fichier `src/index.ts` exporte un handler `default` compatible Vercel. Déployez directement :
-
 ```bash
-vercel deploy
+vercel deploy --prod
 ```
 
-> **Note :** désactivez le cache warmer en serverless (`CACHE_WARMING_ENABLED=false`) car les instances éphémères ne maintiennent pas d'état de fond.
+Variables d'environnement à configurer sur Vercel :
+
+```bash
+vercel env add MCP_API_KEYS production
+vercel env add MCP_ADMIN_SECRET production
+vercel env add REDIS_URL production          # optionnel — cache L2
+vercel env add AFRICAN_MARKETS_USERNAME production  # optionnel — premium
+vercel env add AFRICAN_MARKETS_PASSWORD production
+```
+
+> Désactivez le cache warmer en serverless — `CACHE_WARMING_ENABLED=false` est la valeur par défaut sur Vercel.
+
+---
 
 ### Docker
 
@@ -284,6 +364,7 @@ docker run --rm -i cc-financial-markets-mcp
 # Mode HTTP
 docker run --rm -p 3100:3100 \
   -e CACHE_WARMING_ENABLED=false \
+  -e MCP_API_KEYS=ma-cle-secrete \
   cc-financial-markets-mcp --http 3100
 ```
 
@@ -296,9 +377,7 @@ docker run --rm -p 3100:3100 \
 Liste toutes les places de marché supportées, avec filtrage optionnel par pays.
 
 ```json
-{
-  "country": "Kenya"
-}
+{ "country": "Kenya" }
 ```
 
 Retourne : code, nom, pays, devise pour chaque bourse.
@@ -446,31 +525,39 @@ Retourne : tableau de points `{ date, open, high, low, close, volume }`.
 
 ```
 src/
-├── index.ts                    # Point d'entrée — crée le McpServer, enregistre les outils,
-│                               # gère stdio et HTTP (sessions SSE, CORS, /health)
-├── config.ts                   # Configuration via variables d'environnement
-├── logger.ts                   # Logger JSON structuré → stderr (stdout réservé MCP)
+├── index.ts                     # Point d'entrée — McpServer + transport stdio/HTTP
+│                                # Endpoints: /mcp, /health, /admin/status, /admin/warm
+├── config.ts                    # Configuration via variables d'environnement
+├── logger.ts                    # Logger JSON structuré → stderr (stdout réservé MCP)
+├── auth-mcp.ts                  # Authentification Bearer (MCP_API_KEYS, timingSafeEqual)
+├── inbound-rate-limiter.ts      # Rate limiter inbound par fingerprint de clé API
+├── http-logger.ts               # Logging structuré des requêtes HTTP entrantes
 ├── types/
-│   └── markets.ts              # Types domaine + constante AFRICAN_EXCHANGES (18 bourses)
+│   └── markets.ts               # Types domaine + AFRICAN_EXCHANGES (20 bourses, 3 providers)
 ├── cache/
-│   ├── cache.ts                # Cache TTL en mémoire (Map, sans dépendance externe)
-│   └── warmer.ts               # Cache warmer adaptatif (5 min en trading, 60 min hors séance)
+│   ├── cache.ts                 # Cache TTL en mémoire (Map, sans dépendance externe)
+│   ├── redis-cache.ts           # Cache L2 Redis (optionnel, ioredis)
+│   └── warmer.ts                # Cache warmer adaptatif (5 min trading, 60 min hors séance)
 ├── scraper/
-│   ├── rate-limiter.ts         # Token bucket partagé (requêtes/minute)
-│   ├── fetcher.ts              # Fetch HTTP avec User-Agent navigateur, retry, cache
-│   ├── auth.ts                 # Authentification premium (cookie de session)
-│   ├── parser.ts               # Parseurs Cheerio pour les tables DOM d'african-markets.com
-│   ├── index-history-parser.ts # Extraction du chartData JS inline (historique indices)
-│   └── stock-history-parser.ts # Extraction OHLCV depuis les pages profil (premium)
+│   ├── rate-limiter.ts          # Token bucket partagé (requêtes/minute outbound)
+│   ├── circuit-breaker.ts       # Circuit breaker CLOSED/OPEN/HALF_OPEN avec cooldown
+│   ├── fetcher.ts               # Fetch HTTP avec User-Agent, retry, cache, circuit breaker
+│   ├── auth.ts                  # Authentification premium (cookie de session)
+│   ├── parser.ts                # Parseurs Cheerio pour les tables DOM d'african-markets.com
+│   ├── index-history-parser.ts  # Extraction du chartData JS inline (historique indices)
+│   ├── stock-history-parser.ts  # Extraction OHLCV depuis les pages profil (premium)
+│   └── strategies/
+│       ├── sgbv.ts              # Scraper direct API sgbv.dz (Algérie)
+│       └── bvmac.ts             # Scraper direct API bosxch.bvm-ac.org (CEMAC)
 └── tools/
-    ├── list-exchanges.ts        # Fonction pure, pas de scraping
-    ├── market-data.ts           # Stocks, movers, indices
-    ├── annual-reports.ts        # Publications edocman avec pagination
-    ├── market-news.ts           # Actualités homepage (Raxo)
-    ├── company-profile.ts       # Profil complet entreprise
-    ├── company-documents.ts     # Documents complets entreprise
-    ├── index-history.ts         # Historique indice avec filtrage par période
-    └── stock-history.ts         # Historique OHLCV avec filtrage par période
+    ├── list-exchanges.ts         # Fonction pure, pas de scraping
+    ├── market-data.ts            # Stocks, movers, indices (+ routing vers strategies/)
+    ├── annual-reports.ts         # Publications edocman avec pagination
+    ├── market-news.ts            # Actualités homepage (Raxo)
+    ├── company-profile.ts        # Profil complet entreprise
+    ├── company-documents.ts      # Documents complets entreprise
+    ├── index-history.ts          # Historique indice avec filtrage par période
+    └── stock-history.ts          # Historique OHLCV avec filtrage par période
 ```
 
 ### Flux de données
@@ -478,30 +565,58 @@ src/
 ```
 Client MCP
     │
+    ├─── Auth Bearer (MCP_API_KEYS)
+    ├─── Rate limit inbound (par fingerprint clé)
     ▼
 index.ts (dispatch)
     │
     ▼
 tools/*.ts (handler + validation Zod)
     │
-    ▼
-Fetcher (cache → rate limiter → HTTP)
+    ├── SGBV / BVMAC → scraper/strategies/* (API directe)
     │
-    ▼
-parser.ts / *-parser.ts (Cheerio → types domaine)
-    │
-    ▼
+    └── Autres bourses
+            │
+            ▼
+        Fetcher
+            ├── Cache L1 mémoire  (hit → retour immédiat)
+            ├── Cache L2 Redis    (hit → retour immédiat)
+            ├── Circuit breaker   (OPEN → CircuitOpenError)
+            ├── Rate limiter      (token bucket outbound)
+            └── HTTP fetch + retry
+                    │
+                    ▼
+            african-markets.com
+                    │
+                    ▼
+            parser.ts / *-parser.ts (Cheerio → types domaine)
+                    │
+                    ├── Écriture cache L1 + L2
+                    ▼
 JSON sérialisé → réponse MCP
 ```
+
+### Circuit breaker
+
+Le `CircuitBreaker` wrappé dans `Fetcher` protège contre les pannes du scraper :
+
+| État | Comportement |
+|------|-------------|
+| `CLOSED` | Normal — les erreurs s'accumulent vers le seuil (`CIRCUIT_BREAKER_THRESHOLD`) |
+| `OPEN` | Court-circuit immédiat → `CircuitOpenError` — attente du cooldown (`CIRCUIT_BREAKER_TIMEOUT_SECONDS`) |
+| `HALF_OPEN` | Une probe est envoyée — si elle réussit : retour `CLOSED` ; si elle échoue : retour `OPEN` |
+
+L'état courant est visible via `GET /admin/status`.
 
 ### Décisions de conception
 
 - **Stdout réservé** — tout le logging passe par stderr. Stdout est exclusivement pour le JSON-RPC MCP.
 - **User-Agent navigateur** — le site est derrière Cloudflare ; une requête sans UA standard reçoit une 403.
-- **Pas de base de données** — les données sont éphémères, récupérées à la demande avec un cache TTL en mémoire.
+- **Pas de base de données** — les données sont éphémères, récupérées à la demande avec cache TTL mémoire + Redis L2 optionnel.
 - **Rate limiter partagé** — une seule instance `RateLimiter` entre tous les outils pour respecter les limites du site.
-- **Cache warmer adaptatif** — pendant les heures de trading (n'importe quelle bourse ouverte) : refresh toutes les 5 min ; en dehors : toutes les 60 min. Les bourses ouvertes sont traitées en priorité.
+- **Cache warmer adaptatif** — pendant les heures de trading (n'importe quelle bourse ouverte) : refresh toutes les 5 min ; hors séance : toutes les 60 min.
 - **Format français** — le site est scrapé via `/fr`. Le parsing des nombres gère le format français (ex: `1 234,56`).
+- **Pattern strategy pour SGBV/BVMAC** — ces bourses ont leurs propres APIs JSON et sont traitées via des scrapers dédiés dans `scraper/strategies/`, sans passer par le `Fetcher` africain-markets.
 
 ---
 
@@ -520,14 +635,14 @@ npm run test:coverage
 # Un test spécifique
 npm run test:single -- "parseNumber"
 
-# Tests d'intégration (accès réseau réel)
+# Tests d'intégration (nécessite npm run build)
 npm run test:integration
 
-# Tous les tests
+# Tous les tests (unitaires + intégration)
 npm run test:all
 ```
 
-Les tests couvrent les parseurs, le cache, le rate limiter, l'authentification et chaque outil MCP.
+Les tests d'intégration (`tests/integration/`) démarrent le serveur compilé sur des ports dédiés et vérifient le comportement HTTP réel : sessions MCP, rate limiting 429, cycle de vie du circuit breaker, et authentification Bearer.
 
 ---
 
@@ -556,10 +671,17 @@ npm run inspect
 Ajoutez une entrée dans le tableau `AFRICAN_EXCHANGES` de [src/types/markets.ts](src/types/markets.ts) :
 
 ```typescript
-{ name: "Nom de la bourse", code: "CODE", country: "Pays", currency: "DEV", url: "slug-du-site" }
+{
+  name: "Nom de la bourse",
+  code: "CODE",
+  country: "Pays",
+  currency: "DEV",
+  url: "slug-du-site",
+  provider: "african-markets"  // ou "sgbv" | "bvmac" pour API directe
+}
 ```
 
-Le `url` correspond au slug utilisé dans `/fr/bourse/{slug}` sur african-markets.com.
+Pour une bourse avec API dédiée, créez aussi un scraper dans `src/scraper/strategies/` et branchez-le dans `src/tools/market-data.ts`.
 
 ### Ajouter un nouvel outil
 

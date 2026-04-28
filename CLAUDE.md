@@ -53,7 +53,8 @@ src/
 ├── scraper/
 │   ├── interfaces.ts           # IMarketDataStrategy + MarketDataResult
 │   ├── factory.ts              # ScraperFactory.getStrategy(provider, fetcher) — routes to strategy
-│   ├── fetcher.ts              # HTTP fetcher: rate-limit → cache → fetch → cache write
+│   ├── circuit-breaker.ts      # CircuitBreaker — CLOSED/OPEN/HALF_OPEN, wraps any async fn
+│   ├── fetcher.ts              # HTTP fetcher: rate-limit → cache → circuit breaker → fetch → cache write
 │   ├── rate-limiter.ts         # Token-bucket outbound rate limiter (african-markets.com)
 │   ├── auth.ts                 # Cookie-based auth for premium pages
 │   ├── parser.ts               # Cheerio parsers for african-markets.com DOM
@@ -62,7 +63,7 @@ src/
 │   └── strategies/
 │       ├── african-markets.ts  # Default strategy — fetches via /bourse/{slug}
 │       ├── sgbv.ts             # SGBV (Algeria) — live scraper via sgbv.dz 3-step pipeline
-│       └── bvmac.ts            # BVMAC (CEMAC) — stub, AJAX API not accessible
+│       └── bvmac.ts            # BVMAC (CEMAC) — live scraper via bosxch.bvm-ac.org/ws_api (JSON + HTML fragments)
 └── tools/                      # One file per MCP tool — Zod schema + async handler
     ├── list-exchanges.ts        # Pure — no scraping, filters AFRICAN_EXCHANGES
     ├── market-data.ts           # Stocks / movers / indices, Redis L2 cache with warm
@@ -106,6 +107,7 @@ To add a new exchange provider:
 | `POST /mcp` | Bearer (if `MCP_API_KEYS` set) | MCP protocol |
 | `DELETE /mcp` | Bearer | Close MCP session |
 | `GET /health` | None | Status + Redis + per-exchange freshness |
+| `GET /admin/status` | `x-vercel-cron: 1` OR `?secret=` | Uptime, circuit breaker state, cache size, Redis flag |
 | `POST /admin/warm` | `x-vercel-cron: 1` OR `?secret=` | Trigger cache warm |
 
 ## Integration Tests
@@ -116,6 +118,7 @@ To add a new exchange provider:
 - `http-server.test.ts` — health, MCP protocol, CORS, x-request-id, /admin/warm
 - `auth-mcp.test.ts` — starts its own server on port **3098** with `MCP_API_KEYS` + `MCP_ALLOWED_ORIGINS`
 - `rate-limit.test.ts` — starts servers on ports **3097** / **3096** with low `MCP_INBOUND_RATE_LIMIT`
+- `circuit-breaker.test.ts` — starts its own server on port **3095** with `AFRICAN_MARKETS_BASE_URL` pointing to 127.0.0.1:19999 (nothing listening → ECONNREFUSED), `CIRCUIT_BREAKER_THRESHOLD=2`, `CACHE_WARMING_ENABLED=false`, `REDIS_URL=""`
 
 Each test file that needs custom env vars manages its own `ChildProcess` in `beforeAll`/`afterAll`.
 
@@ -131,9 +134,11 @@ All variables and their defaults are in `src/config.ts`. See `.env.example` for 
 | `MCP_API_KEYS` | — | Comma-separated Bearer tokens; empty = auth disabled |
 | `MCP_ALLOWED_ORIGINS` | — | CORS allowlist; empty = `*` |
 | `MCP_INBOUND_RATE_LIMIT` | `60` | Requests/min per key on `/mcp`; `0` = disabled |
-| `MCP_ADMIN_SECRET` | — | Secret for manual `/admin/warm` calls |
+| `MCP_ADMIN_SECRET` | — | Secret for manual `/admin/warm` and `/admin/status` calls |
 | `CACHE_WARMING_ENABLED` | `true` | Set `false` in serverless (Vercel handles it via Cron) |
 | `CACHE_TTL_SECONDS` | `300` | Market data TTL |
+| `CIRCUIT_BREAKER_THRESHOLD` | `3` | Consecutive failures before opening the circuit |
+| `CIRCUIT_BREAKER_TIMEOUT_SECONDS` | `30` | Cooldown before HALF_OPEN probe attempt |
 
 ## Key Design Decisions
 
@@ -144,6 +149,7 @@ All variables and their defaults are in `src/config.ts`. See `.env.example` for 
 - **Parsers are fragile**: CSS selectors in `parser.ts` are tuned to african-markets.com's live DOM (Joomla CMS). When scraping breaks, inspect the live DOM and update selectors.
 - **French locale numbers**: `parseNumber` in `parser.ts` handles `1 234,56` → `1234.56`.
 - **BRVM vs other exchanges**: BRVM has 7-column pricing data. Other exchanges like NSE Kenya only expose company names — no price data on the listing page.
+- **Circuit breaker wraps the retry loop**: `CircuitBreaker.call(fn)` wraps the entire retry loop in `Fetcher.fetchPage()`. When the circuit is OPEN, it throws `CircuitOpenError` before any network call. This means `CacheWarmer` background calls also consume the failure budget — integration tests that test circuit behavior **must** set `CACHE_WARMING_ENABLED=false` to prevent race conditions.
 
 ## Adding a New Tool
 
